@@ -242,7 +242,7 @@ def ringdown_fit(times, data, modes, Mf, chif, t0, t0_method='geq', T=100):
     # -----------
     
     frequencies = np.array(qnm.omega_list(modes, chif, Mf))
-        
+
     # Construct coefficient matrix and solve
     # --------------------------------------
     
@@ -280,6 +280,162 @@ def ringdown_fit(times, data, modes, Mf, chif, t0, t0_method='geq', T=100):
     
     # Return the output dictionary
     return best_fit
+
+
+
+def ringdown_fit_delta(times, data, modes, Mf, chif, t0, t0_method='geq', T=100, deltas=[]):
+    """
+    Perform a least-squares fit to some data using a ringdown model.
+
+    Parameters
+    ----------
+    times : array_like
+        The times associated with the data to be fitted.
+        
+    data : array_like
+        The data to be fitted by the ringdown model.
+        
+    modes : array_like
+        A sequence of (l,m,n,sign) tuples to specify which QNMs to include in 
+        the ringdown model. For regular (positive real part) modes use 
+        sign=+1. For mirror (negative real part) modes use sign=-1. For 
+        nonlinear modes, the tuple has the form 
+        (l1,m1,n1,sign1,l2,m2,n2,sign2,...).
+        
+    Mf : float
+        The remnant black hole mass, which along with chif determines the QNM
+        frequencies.
+        
+    chif : float
+        The magnitude of the remnant black hole spin.
+        
+    t0 : float
+        The start time of the ringdown model.
+        
+    t0_method : str, optional
+        A requested ringdown start time will in general lie between times on
+        the default time array (the same is true for the end time of the
+        analysis). There are different approaches to deal with this, which can
+        be specified here.
+        
+        Options are:
+            
+            - 'geq'
+                Take data at times greater than or equal to t0. Note that
+                we still treat the ringdown start time as occuring at t0,
+                so the best fit coefficients are defined with respect to 
+                t0.
+
+            - 'closest'
+                Identify the data point occuring at a time closest to t0, 
+                and take times from there.
+                
+        The default is 'geq'.
+        
+    T : float, optional
+        The duration of the data to analyse, such that the end time is t0 + T. 
+        The default is 100.
+
+    deltas : array_like
+        The values of the delta parameter for each mode. This will modify the 
+        frequency of each mode by the one plus respecitve value provided in the delta list.
+
+    Returns
+    -------
+    best_fit : dict
+        A dictionary of useful information related to the fit. Keys include:
+            
+            - 'residual' : float
+                The residual from the fit.
+            - 'mismatch' : float
+                The mismatch between the best-fit waveform and the data.
+            - 'C' : ndarray
+                The best-fit complex amplitudes. There is a complex amplitude 
+                for each ringdown mode.
+            - 'data' : ndarray
+                The (masked) data used in the fit.
+            - 'model': ndarray
+                The best-fit model waveform.
+            - 'model_times' : ndarray
+                The times at which the model is evaluated.
+            - 't0' : float
+                The ringdown start time used in the fit.
+            - 'modes' : ndarray
+                The ringdown modes used in the fit.
+            - 'mode_labels' : list
+                Labels for each of the ringdown modes (used for plotting).
+            - 'frequencies' : ndarray
+                The values of the complex frequencies for all the ringdown 
+                modes.
+    """
+    # Mask the data with the requested method
+    if t0_method == 'geq':
+        
+        data_mask = (times>=t0) & (times<t0+T)
+        
+        times = times[data_mask]
+        data = data[data_mask]
+        
+    elif t0_method == 'closest':
+        
+        start_index = np.argmin((times-t0)**2)
+        end_index = np.argmin((times-t0-T)**2)
+        
+        times = times[start_index:end_index]
+        data = data[start_index:end_index]
+        
+    else:
+        print("""Requested t0_method is not valid. Please choose between 'geq'
+              and 'closest'""")
+    
+    # Frequencies
+    # -----------
+    
+
+    #frequencies = np.array(qnm.omega_list(modes, chif, Mf))
+    # here it returns the frequency of each complex mode as an array. modify each frequency by the value provided in the delta list. 
+    
+    frequencies = np.multiply(np.array(qnm.omega_list(modes, chif, Mf)),np.array(deltas)+1)
+
+
+    # Construct coefficient matrix and solve
+    # --------------------------------------
+    
+    # Construct the coefficient matrix
+    a = np.array([
+        np.exp(-1j*frequencies[i]*(times-t0)) for i in range(len(frequencies))
+        ]).T
+
+    # Solve for the complex amplitudes, C. Also returns the sum of residuals,
+    # the rank of a, and singular values of a.
+    C, res, rank, s = np.linalg.lstsq(a, data, rcond=None)
+    
+    # Evaluate the model
+    model = np.einsum('ij,j->i', a, C)
+    
+    # Calculate the mismatch for the fit
+    mm = mismatch(times, model, data)
+    
+    # Create a list of mode labels (can be used for plotting)
+    labels = [str(mode) for mode in modes]
+    
+    # Store all useful information to a output dictionary
+    best_fit = {
+        'residual': res,
+        'mismatch': mm,
+        'C': C,
+        'data': data,
+        'model': model,
+        'model_times': times,
+        't0': t0,
+        'modes': modes,
+        'mode_labels': labels,
+        'frequencies': frequencies
+        }
+    
+    # Return the output dictionary
+    return best_fit
+
 
 
 def dynamic_ringdown_fit(times, data, modes, Mf, chif, t0, t0_method='geq', 
